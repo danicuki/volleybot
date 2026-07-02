@@ -1,0 +1,7 @@
+node_modules/
+.chrome-profile/
+.chrome-profile-test/
+.cdp-test/
+.env
+*.log
+.claude/settings.local.json

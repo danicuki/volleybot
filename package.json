@@ -1,0 +1,22 @@
+{
+  "name": "volleybot",
+  "version": "0.1.0",
+  "description": "Human handoff for AI browser agents — the agent sets, you spike. When an agent hits a captcha / proof-of-humanity wall, it hands its live browser to you over a URL, you solve it from any device, and the agent resumes from the same session.",
+  "type": "module",
+  "bin": {
+    "volleybot": "./bin/volleybot.js"
+  },
+  "scripts": {
+    "demo": "node examples/ashby.js",
+    "test": "node test/smoke.js && node test/attach-cdp.js",
+    "test:smoke": "node test/smoke.js",
+    "test:attach": "node test/attach-cdp.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "playwright-core": "^1.49.1",
+    "qrcode-terminal": "^0.12.0",
+    "ws": "^8.18.0"
+  },
+  "license": "MIT"
+}

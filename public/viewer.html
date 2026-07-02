@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Take over · volleybot</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: #0b0d10; color: #e7ecf2;
+        font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; overflow: hidden; }
+      #bar { display: flex; align-items: center; gap: 12px; padding: 8px 12px;
+        background: #14181d; border-bottom: 1px solid #232a31; position: sticky; top: 0; z-index: 2; }
+      #bar .reason { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #9fb0c0; }
+      #dot { width: 9px; height: 9px; border-radius: 50%; background: #e0a52b; flex: none; }
+      #dot.live { background: #35c759; }
+      #dot.done { background: #4b5563; }
+      button#resume { appearance: none; border: 0; border-radius: 8px; padding: 8px 14px;
+        font-weight: 600; background: #2f6df6; color: #fff; cursor: pointer; flex: none; }
+      button#resume:disabled { background: #2b3a4a; color: #7c8894; cursor: default; }
+      #stage { position: absolute; inset: 44px 0 0 0; display: grid; place-items: center; background: #0b0d10; }
+      canvas { max-width: 100%; max-height: 100%; touch-action: none; cursor: crosshair;
+        box-shadow: 0 0 0 1px #232a31; background: #fff; }
+      #hint { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+        background: #14181dcc; border: 1px solid #232a31; border-radius: 999px; padding: 6px 14px;
+        color: #9fb0c0; font-size: 12px; z-index: 2; }
+    </style>
+  </head>
+  <body>
+    <div id="bar">
+      <span id="dot" title="connection"></span>
+      <span class="reason" id="reason">Connecting…</span>
+      <button id="resume" disabled>✓ Solved — resume agent</button>
+    </div>
+    <div id="stage"><canvas id="screen" width="1280" height="800"></canvas></div>
+    <div id="hint">Interact with the page just like normal. Tap the button above when the check is passed.</div>
+
+    <script>
+      const token = location.pathname.split('/').pop();
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const canvas = document.getElementById('screen');
+      const ctx = canvas.getContext('2d');
+      const dot = document.getElementById('dot');
+      const reasonEl = document.getElementById('reason');
+      const resumeBtn = document.getElementById('resume');
+      let vw = 1280, vh = 800;
+      let ws, done = false;
+
+      // ---- rendering ------------------------------------------------------
+      const img = new Image();
+      let pending = null, drawing = false;
+      img.onload = () => { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); drawing = false; if (pending) flush(); };
+      function flush() { if (drawing || !pending) return; drawing = true; const d = pending; pending = null; img.src = 'data:image/jpeg;base64,' + d; }
+      function onFrame(data, meta) {
+        if (meta && meta.deviceWidth && (canvas.width !== meta.deviceWidth || canvas.height !== meta.deviceHeight)) {
+          canvas.width = meta.deviceWidth; canvas.height = meta.deviceHeight;
+        }
+        pending = data; flush();
+      }
+
+      // ---- coordinate mapping (display px -> page css px) -----------------
+      function toPage(e) {
+        const r = canvas.getBoundingClientRect();
+        const x = Math.max(0, Math.min(vw, ((e.clientX - r.left) / r.width) * vw));
+        const y = Math.max(0, Math.min(vh, ((e.clientY - r.top) / r.height) * vh));
+        return { x, y };
+      }
+      function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+
+      // ---- input ----------------------------------------------------------
+      let lastMove = 0;
+      canvas.addEventListener('pointerdown', (e) => {
+        canvas.setPointerCapture(e.pointerId); const p = toPage(e); send({ type: 'mousedown', ...p }); e.preventDefault();
+      });
+      canvas.addEventListener('pointermove', (e) => {
+        const now = performance.now(); if (now - lastMove < 25) return; lastMove = now;
+        send({ type: 'mousemove', ...toPage(e) });
+      });
+      canvas.addEventListener('pointerup', (e) => { send({ type: 'mouseup', ...toPage(e) }); e.preventDefault(); });
+      canvas.addEventListener('wheel', (e) => {
+        const p = toPage(e); send({ type: 'wheel', ...p, deltaX: e.deltaX, deltaY: e.deltaY }); e.preventDefault();
+      }, { passive: false });
+
+      // keyboard (relayed while this tab is focused)
+      function relayKey(e, action) {
+        // let the resume button and browser shortcuts work
+        if (e.target === resumeBtn) return;
+        send({ type: 'key', action, key: e.key, code: e.code, keyCode: e.keyCode,
+          text: e.key.length === 1 ? e.key : '', shift: e.shiftKey, ctrl: e.ctrlKey, alt: e.altKey, meta: e.metaKey });
+        if (['Tab', ' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
+      }
+      window.addEventListener('keydown', (e) => relayKey(e, 'down'));
+      window.addEventListener('keyup', (e) => relayKey(e, 'up'));
+
+      resumeBtn.addEventListener('click', () => { send({ type: 'resume' }); resumeBtn.disabled = true; resumeBtn.textContent = 'Resuming…'; });
+
+      // ---- socket ---------------------------------------------------------
+      function connect() {
+        ws = new WebSocket(`${proto}://${location.host}/ws?token=${token}`);
+        ws.onopen = () => { dot.className = 'live'; resumeBtn.disabled = false; };
+        ws.onclose = () => { if (!done) { dot.className = ''; setTimeout(connect, 1000); } };
+        ws.onmessage = (ev) => {
+          const m = JSON.parse(ev.data);
+          if (m.type === 'hello') { reasonEl.textContent = m.reason || 'Human verification required';
+            if (m.viewport) { vw = m.viewport.width; vh = m.viewport.height; } }
+          else if (m.type === 'frame') onFrame(m.data, m.metadata);
+          else if (m.type === 'resumed') { done = true; dot.className = 'done';
+            reasonEl.textContent = 'Handed back to the agent. You can close this tab.';
+            resumeBtn.disabled = true; resumeBtn.textContent = 'Done ✓'; ws.close(); }
+        };
+      }
+      connect();
+    </script>
+  </body>
+</html>
