@@ -24,6 +24,7 @@ const { values, positionals } = parseArgs({
     launch: { type: 'string' }, // standalone: launch our own browser at this URL
     reason: { type: 'string' },
     force: { type: 'boolean', default: false }, // hand off even with no detected wall
+    'page-url': { type: 'string' }, // when several tabs are open, pick this one
     port: { type: 'string' },
     help: { type: 'boolean', short: 'h', default: false },
   },
@@ -36,7 +37,16 @@ const cdp = values.cdp || process.env.VOLLEYBOT_CDP;
 const port = Number(values.port || process.env.PORT || 7411);
 
 async function open() {
-  if (cdp) return HandoffBrowser.attachOverCDP({ cdpEndpoint: cdp, port });
+  if (cdp) {
+    const hb = await HandoffBrowser.attachOverCDP({
+      cdpEndpoint: cdp,
+      pageUrl: values['page-url'],
+      port,
+    });
+    // Tell the agent (and the human) exactly which tab we grabbed.
+    console.log(`ATTACHED_TAB=${hb.page.url()}`);
+    return hb;
+  }
   if (values.launch) {
     const hb = await HandoffBrowser.launch({ port });
     await hb.page.goto(values.launch, { waitUntil: 'domcontentloaded' });
@@ -77,17 +87,25 @@ async function main() {
         values.reason || `Manual verification (${wall.kind}) on ${hostOf(hb.page.url())}`;
       const { by } = await hb.handoff({
         reason,
-        autoResume: !values.force, // forced handoffs wait for the human's tap
+        autoResume: true, // auto-resume when the page moves forward (e.g. submit)
+        watchClear: !values.force, // also when a detected wall clears
         onUrl: (u) => console.log(`HANDOFF_URL=${u}`),
       });
       console.log(`HANDOFF_COMPLETE by=${by}`);
     } finally {
-      await hb.close();
+      // Don't let teardown hang the process — the tunnel child / sockets can
+      // keep the event loop alive, which would leave the agent's `exec` blocked
+      // forever even after the human tapped Resume.
+      await Promise.race([hb.close(), sleep(3000)]);
     }
-    return;
+    process.exit(0); // hard-exit so the caller unblocks immediately
   }
 
   fail(`unknown command "${cmd}"`);
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 function hostOf(u) {
@@ -107,21 +125,24 @@ function usage(code) {
   console.log(`volleybot — human handoff for stuck browser agents
 
 USAGE
-  volleybot handoff --cdp <url> [--reason "..."] [--force]
+  volleybot handoff --cdp <url> [--reason "..."] [--force] [--page-url <substr>]
   volleybot detect  --cdp <url>
 
 COMMANDS
   handoff   Hand the live browser to a human and BLOCK until solved, then exit.
+            Attaches to the browser's ACTIVE tab; prints ATTACHED_TAB=<url>.
             No-op (prints NO_HANDOFF_NEEDED) if no wall is detected, unless --force.
   detect    Exit 0 if a proof-of-humanity wall is present, 1 if not.
 
 OPTIONS
-  --cdp <url>      CDP endpoint of the browser your agent drives (e.g.
-                   http://localhost:9222). Or set $VOLLEYBOT_CDP.
-  --launch <url>   Standalone: launch volleybot's own browser at <url> instead.
-  --reason "..."   Message shown to the human (what wall, which site).
-  --force          Hand off even if no wall is auto-detected (2FA, logins…).
-  --port <n>       Live-view server port (default 7411 / $PORT).
+  --cdp <url>        CDP endpoint of the browser your agent drives (e.g.
+                     http://localhost:9222). Or set $VOLLEYBOT_CDP.
+  --page-url <substr>  With several tabs open, hand off the tab whose URL
+                     contains <substr> instead of the active one.
+  --launch <url>     Standalone: launch volleybot's own browser at <url> instead.
+  --reason "..."     Message shown to the human (what wall, which site).
+  --force            Hand off even if no wall is auto-detected (2FA, logins…).
+  --port <n>         Live-view server port (default 7411 / $PORT).
 
 TUNNEL / NOTIFY env: TUNNEL, NGROK_AUTHTOKEN, PUBLIC_BASE_URL,
   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID  (see .env.example)`);

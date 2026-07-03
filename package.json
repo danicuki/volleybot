@@ -1,22 +1,64 @@
 {
   "name": "volleybot",
   "version": "0.1.0",
-  "description": "Human handoff for AI browser agents — the agent sets, you spike. When an agent hits a captcha / proof-of-humanity wall, it hands its live browser to you over a URL, you solve it from any device, and the agent resumes from the same session.",
+  "description": "Human handoff for AI browser agents — when an agent hits a captcha / proof-of-humanity wall, it hands its live browser to you over a URL, you solve it from any device, and the agent resumes on the same session.",
   "type": "module",
+  "keywords": [
+    "captcha",
+    "cloudflare",
+    "turnstile",
+    "human-in-the-loop",
+    "browser-automation",
+    "ai-agents",
+    "playwright",
+    "puppeteer",
+    "cdp",
+    "remote-browser"
+  ],
+  "homepage": "https://github.com/danicuki/volleybot#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/danicuki/volleybot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/danicuki/volleybot/issues"
+  },
+  "author": "Daniel Cukier",
+  "license": "MIT",
   "bin": {
     "volleybot": "./bin/volleybot.js"
   },
+  "main": "src/handoff-browser.js",
+  "exports": {
+    ".": "./src/handoff-browser.js",
+    "./live-view": "./src/live-view.js",
+    "./detectors": "./src/detectors.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "public",
+    "skills",
+    "examples",
+    ".env.example",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "demo": "node examples/ashby.js",
-    "test": "node test/smoke.js && node test/attach-cdp.js",
+    "try": "node examples/try-handoff.js",
+    "test": "node test/smoke.js && node test/attach-cdp.js && node test/handoff-fixes.js",
     "test:smoke": "node test/smoke.js",
-    "test:attach": "node test/attach-cdp.js"
+    "test:attach": "node test/attach-cdp.js",
+    "test:fixes": "node test/handoff-fixes.js"
   },
   "dependencies": {
     "express": "^4.21.2",
     "playwright-core": "^1.49.1",
     "qrcode-terminal": "^0.12.0",
     "ws": "^8.18.0"
-  },
-  "license": "MIT"
+  }
 }

@@ -13,7 +13,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
-import { detectChallenge, waitForChallengeCleared } from './detectors.js';
+import { resolveChromePath } from './resolve-browser.js';
+import { detectChallenge } from './detectors.js';
 import { LiveView } from './live-view.js';
 import { openPublicUrl } from './tunnel.js';
 import { notifyHuman } from './notify.js';
@@ -33,11 +34,15 @@ export class HandoffBrowser {
   static async launch(opts = {}) {
     const {
       headless = process.env.HEADLESS !== 'false',
-      executablePath = process.env.CHROME_PATH || '/usr/bin/chromium',
+      executablePath, // resolved cross-platform below; $CHROME_PATH honored
       userDataDir = process.env.USER_DATA_DIR || './.chrome-profile',
       port = Number(process.env.PORT) || 7411,
       viewport = DEFAULT_VIEWPORT,
     } = opts;
+
+    // Find a Chrome/Chromium/Edge/Brave binary (Linux/macOS/Windows), or throw
+    // an actionable error pointing at CHROME_PATH / attachOverCDP / fromPage.
+    const chromePath = resolveChromePath(executablePath);
 
     // Extra flags from the environment, e.g. CHROME_ARGS="--ozone-platform=wayland".
     const extraArgs = (process.env.CHROME_ARGS || '').split(' ').filter(Boolean);
@@ -78,7 +83,7 @@ export class HandoffBrowser {
     // and reduce how often the wall reappears.
     const context = await chromium.launchPersistentContext(userDataDir, {
       headless: effectiveHeadless,
-      executablePath,
+      executablePath: chromePath,
       viewport,
       args,
     });
@@ -95,17 +100,37 @@ export class HandoffBrowser {
    * (screencast + input relay + notify + resume) works, on the agent's own live
    * session. We never close the agent's browser on `close()`.
    *
-   * @param {{cdpEndpoint: string, page?: import('playwright-core').Page, port?: number}} opts
+   * Picks the browser's ACTIVE (foreground) tab by default — not `pages()[0]`,
+   * which is the oldest tab and is almost never the one the agent is stuck on
+   * when several are open. Override with `pageUrl` (substring match) or `page`.
+   *
+   * @param {{cdpEndpoint: string, page?: import('playwright-core').Page, pageUrl?: string, port?: number}} opts
    *   cdpEndpoint e.g. "http://localhost:9222"
    */
-  static async attachOverCDP({ cdpEndpoint, page, port = Number(process.env.PORT) || 7411 }) {
+  static async attachOverCDP({ cdpEndpoint, page, pageUrl, port = Number(process.env.PORT) || 7411 }) {
     if (!cdpEndpoint) throw new Error('attachOverCDP requires a cdpEndpoint, e.g. http://localhost:9222');
     const browser = await chromium.connectOverCDP(cdpEndpoint);
     const context = browser.contexts()[0] || (await browser.newContext());
-    const target = page || context.pages()[0] || (await context.newPage());
+    const target = page || (await pickActivePage(context, { pageUrl }));
     const hb = new HandoffBrowser(context, target, { port, ownsBrowser: false });
     hb._cdpBrowser = browser;
     return hb;
+  }
+
+  /**
+   * Wrap a Playwright `Page` you already drive in THIS process (e.g. your own
+   * Playwright script, or browser-use, which is Playwright underneath). No CDP
+   * endpoint needed; we never close your browser on `close()`.
+   *
+   * Works even if your app uses a different Playwright build than volleybot's
+   * `playwright-core` — we only call methods on the page you pass in.
+   *
+   * @param {import('playwright-core').Page} page
+   * @param {{port?: number}} [opts]
+   */
+  static fromPage(page, opts = {}) {
+    const port = opts.port ?? (Number(process.env.PORT) || 7411);
+    return new HandoffBrowser(page.context(), page, { port, ownsBrowser: false });
   }
 
   constructor(context, page, { port, ownsBrowser = true }) {
@@ -129,13 +154,18 @@ export class HandoffBrowser {
     const reason =
       opts.reason ||
       `Proof-of-humanity wall (${challenge.kind}) on ${safeHost(this.page.url())}`;
-    await this.handoff({ reason, autoResume: opts.autoResume ?? true });
+    // A wall was detected, so also auto-resume when it clears.
+    await this.handoff({ reason, autoResume: opts.autoResume ?? true, watchClear: true });
     return { handedOff: true, challenge };
   }
 
   /**
    * Unconditionally hand the live browser to a human and block until resumed.
-   * @param {{reason?: string, autoResume?: boolean}} [opts]
+   * Resumes on whichever happens first:
+   *   - the human taps "Resume"
+   *   - (autoResume) the page navigates forward — e.g. a successful submit
+   *   - (watchClear) a previously-detected wall disappears
+   * @param {{reason?: string, autoResume?: boolean, watchClear?: boolean, onUrl?: (u:string)=>void}} [opts]
    */
   async handoff(opts = {}) {
     const reason = opts.reason || 'A human is needed to continue.';
@@ -148,22 +178,55 @@ export class HandoffBrowser {
     await notifyHuman({ url, reason });
     opts.onUrl?.(url); // let callers surface the link before we block
 
-    // Resolve on EITHER the human pressing "Resume" OR (if enabled) the wall
-    // clearing on its own — whichever comes first.
-    const waiters = [session.waitForResume()];
-    if (opts.autoResume ?? true) {
-      waiters.push(
-        waitForChallengeCleared(this.page).then((cleared) =>
-          cleared ? 'auto' : 'timeout'
-        )
-      );
-    }
-    const by = await Promise.race(waiters);
+    const startUrl = this.page.url();
+    const progress =
+      (opts.autoResume ?? true)
+        ? this._watchProgress({ fromUrl: startUrl, watchClear: opts.watchClear ?? false })
+        : null;
+
+    const by = await Promise.race([
+      session.waitForResume().then(() => 'human'),
+      ...(progress ? [progress.promise] : []),
+    ]);
+    progress?.cancel();
+
     console.log(`▶️  Resuming agent (trigger: ${by}).`);
     session._resolveResume(by); // idempotent; stops the stream / closes viewers
     await session.dispose().catch(() => {});
     this.liveView.sessions.delete(session.token);
     return { by, url };
+  }
+
+  /**
+   * Watch for the page to make forward progress so we can auto-resume without
+   * the human tapping anything. Returns { promise, cancel }. `promise` resolves
+   * with 'navigated' | 'cleared' | 'timeout'. Cancel it once another waiter wins.
+   */
+  _watchProgress({ fromUrl, watchClear, pollMs = 900, timeoutMs = 15 * 60_000 }) {
+    let cancelled = false;
+    const bareUrl = (u) => (u || '').split('#')[0];
+    const from = bareUrl(fromUrl);
+    const promise = (async () => {
+      const deadline = Date.now() + timeoutMs;
+      while (!cancelled && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, pollMs));
+        if (cancelled) return 'cancel';
+        let now;
+        try {
+          now = this.page.url();
+        } catch {
+          return 'cancel'; // page/context gone
+        }
+        // A change of URL (path/query, ignoring #fragment) = a submit/next step.
+        if (bareUrl(now) !== from) return 'navigated';
+        if (watchClear) {
+          const wall = await detectChallenge(this.page).catch(() => null);
+          if (!wall) return 'cleared';
+        }
+      }
+      return 'timeout';
+    })();
+    return { promise, cancel: () => { cancelled = true; } };
   }
 
   async close() {
@@ -186,6 +249,41 @@ function safeHost(u) {
   } catch {
     return u;
   }
+}
+
+/**
+ * Choose which tab to hand off. Order: explicit URL substring match → the
+ * foreground/visible tab → the most recently opened tab. Never blindly
+ * `pages()[0]` (the oldest), which caused "wrong tab" handoffs.
+ * @param {import('playwright-core').BrowserContext} context
+ * @param {{pageUrl?: string}} [opts]
+ */
+async function pickActivePage(context, { pageUrl } = {}) {
+  const pages = context.pages();
+  if (pages.length === 0) return context.newPage();
+  if (pages.length === 1) return pages[0];
+
+  if (pageUrl) {
+    const match = pages.find((p) => {
+      try {
+        return p.url().includes(pageUrl);
+      } catch {
+        return false;
+      }
+    });
+    if (match) return match;
+  }
+
+  // Background tabs report document.visibilityState === 'hidden'; the foreground
+  // one is 'visible'. This is the tab a human actually wants to see.
+  const states = await Promise.all(
+    pages.map((p) => p.evaluate(() => document.visibilityState).catch(() => 'unknown'))
+  );
+  const visible = states.findIndex((s) => s === 'visible');
+  if (visible !== -1) return pages[visible];
+
+  // Fallback: most recently opened (usually the active one), not the oldest.
+  return pages[pages.length - 1];
 }
 
 /**

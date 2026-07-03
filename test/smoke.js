@@ -9,8 +9,10 @@ import assert from 'node:assert';
 import { WebSocket } from 'ws';
 import { chromium } from 'playwright-core';
 import { LiveView } from '../src/live-view.js';
+import { HandoffBrowser } from '../src/handoff-browser.js';
+import { resolveChromePath } from '../src/resolve-browser.js';
 
-const executablePath = process.env.CHROME_PATH || '/usr/bin/chromium';
+const executablePath = resolveChromePath();
 const PORT = 7599;
 
 const PAGE = `data:text/html,<body style="margin:0">
@@ -75,6 +77,14 @@ try {
   const by = await withTimeout(resumed, 3000, 'resume signal');
   assert.equal(by, 'human');
   console.log('✓ resume signal resolved the handoff');
+
+  // 5. fromPage() wraps an existing page without owning the browser
+  const hb = HandoffBrowser.fromPage(page, { port: PORT + 1 });
+  assert.equal(hb.ownsBrowser, false, 'fromPage must not own the browser');
+  assert.equal(hb.page, page, 'fromPage should expose the same page');
+  await hb.close(); // must be a no-op on the caller's browser
+  assert.ok(!page.isClosed(), "fromPage.close() must not close the caller's page");
+  console.log('✓ fromPage() wraps an existing page without owning the browser');
 
   console.log('\nALL SMOKE CHECKS PASSED ✅');
 } catch (e) {

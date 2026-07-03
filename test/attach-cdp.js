@@ -14,8 +14,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { HandoffBrowser } from '../src/handoff-browser.js';
+import { resolveChromePath } from '../src/resolve-browser.js';
 
-const CHROME = process.env.CHROME_PATH || '/usr/bin/chromium';
+const CHROME = resolveChromePath();
 const CDP_PORT = 9333;
 const SRV_PORT = 7601;
 const CDP = `http://127.0.0.1:${CDP_PORT}`;

@@ -11,6 +11,9 @@
 set -euo pipefail
 
 REASON="${1:-A human verification step is blocking the agent.}"
+# Optional 2nd arg (or $VOLLEYBOT_PAGE_URL): when several tabs are open, target
+# the one whose URL contains this substring instead of the active tab.
+PAGE_URL="${2:-${VOLLEYBOT_PAGE_URL:-}}"
 
 CDP="${VOLLEYBOT_CDP:-}"
 if [ -z "$CDP" ] && command -v agent-browser >/dev/null 2>&1; then
@@ -32,5 +35,8 @@ else
   exit 127
 fi
 
-echo "volleybot: handing off (cdp=$CDP)" >&2
-exec "${VB[@]}" handoff --cdp "$CDP" --reason "$REASON"
+ARGS=(handoff --cdp "$CDP" --reason "$REASON")
+[ -n "$PAGE_URL" ] && ARGS+=(--page-url "$PAGE_URL")
+
+echo "volleybot: handing off (cdp=$CDP${PAGE_URL:+, tab~=$PAGE_URL})" >&2
+exec "${VB[@]}" "${ARGS[@]}"

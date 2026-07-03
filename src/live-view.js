@@ -129,10 +129,10 @@ class Session {
 
   attachSocket(ws) {
     this.sockets.add(ws);
-    // Tell the client what it's looking at + the live viewport size for coord mapping.
-    this.page
-      .viewportSize()
-      ?.width && this._send(ws, { type: 'hello', reason: this.meta.reason || 'Human verification required', viewport: this.page.viewportSize() });
+    // Always greet the client (reason + which tab it's driving). Coordinate
+    // mapping is derived from the screencast frames themselves, not this hello —
+    // so it's correct even when viewportSize() is null (attached CDP pages).
+    this._sendHello(ws);
     // Start (or keep) streaming as long as at least one viewer is connected.
     if (this.sockets.size === 1) this._startScreencast();
 
@@ -144,13 +144,37 @@ class Session {
     ws.on('error', () => {});
   }
 
-  async _onMessage(raw) {
+  async _sendHello(ws) {
+    let title = '';
+    try {
+      title = await this.page.title();
+    } catch {
+      // page may be mid-navigation
+    }
+    this._send(ws, {
+      type: 'hello',
+      reason: this.meta.reason || 'Human verification required',
+      viewport: this.page.viewportSize() || null,
+      page: { url: this.page.url(), title },
+    });
+  }
+
+  _onMessage(raw) {
     let msg;
     try {
       msg = JSON.parse(raw.toString());
     } catch {
       return;
     }
+    // Dispatch strictly in the order received. Each handler awaits CDP, so
+    // without this a mouseup could overtake a mousedown's press and cancel the
+    // click — exactly the kind of thing that makes taps feel dead on mobile.
+    this._inputChain = (this._inputChain || Promise.resolve())
+      .then(() => this._dispatch(msg))
+      .catch(() => {});
+  }
+
+  async _dispatch(msg) {
     try {
       switch (msg.type) {
         case 'mousemove':
@@ -162,6 +186,15 @@ class Session {
           });
           break;
         case 'mousedown':
+          // A tap on mobile fires down with no preceding move. Move the cursor
+          // to the target first so hover state is set and the press is trusted
+          // where the user actually tapped (matters for Turnstile/reCAPTCHA).
+          await this.cdp.send('Input.dispatchMouseEvent', {
+            type: 'mouseMoved',
+            x: msg.x,
+            y: msg.y,
+            buttons: 0,
+          });
           this._pressedButtons |= 1;
           await this.cdp.send('Input.dispatchMouseEvent', {
             type: 'mousePressed',

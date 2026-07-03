@@ -33,7 +33,7 @@
       <button id="resume" disabled>✓ Solved — resume agent</button>
     </div>
     <div id="stage"><canvas id="screen" width="1280" height="800"></canvas></div>
-    <div id="hint">Interact with the page just like normal. Tap the button above when the check is passed.</div>
+    <div id="hint">✋ one finger: tap &amp; drag&nbsp;&nbsp;·&nbsp;&nbsp;✌️ two fingers: scroll&nbsp;&nbsp;·&nbsp;&nbsp;then tap Resume</div>
 
     <script>
       const token = location.pathname.split('/').pop();
@@ -43,7 +43,6 @@
       const dot = document.getElementById('dot');
       const reasonEl = document.getElementById('reason');
       const resumeBtn = document.getElementById('resume');
-      let vw = 1280, vh = 800;
       let ws, done = false;
 
       // ---- rendering ------------------------------------------------------
@@ -59,25 +58,73 @@
       }
 
       // ---- coordinate mapping (display px -> page css px) -----------------
+      // Map into the canvas's own pixel space, which we size to each frame's
+      // deviceWidth/Height (the page's real CSS viewport). This stays correct no
+      // matter what the attached browser's viewport is — the earlier bug was
+      // assuming a fixed 1280x800, which mis-aimed every tap on a phone.
       function toPage(e) {
         const r = canvas.getBoundingClientRect();
-        const x = Math.max(0, Math.min(vw, ((e.clientX - r.left) / r.width) * vw));
-        const y = Math.max(0, Math.min(vh, ((e.clientY - r.top) / r.height) * vh));
+        const w = canvas.width, h = canvas.height;
+        const x = Math.max(0, Math.min(w, ((e.clientX - r.left) / r.width) * w));
+        const y = Math.max(0, Math.min(h, ((e.clientY - r.top) / r.height) * h));
         return { x, y };
       }
       function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
 
       // ---- input ----------------------------------------------------------
-      let lastMove = 0;
+      // 1 finger / mouse = interact (click, drag). 2 fingers = scroll (there's
+      // no wheel on touch, so a one-finger drag can't scroll a page — it just
+      // drags). This mirrors how remote-desktop web clients handle it.
+      const pointers = new Map();      // pointerId -> {x, y} (client px)
+      let lastMove = 0, downPos = null, scrolling = false, scrollAt = null;
+
+      function centroid() {
+        let x = 0, y = 0; for (const p of pointers.values()) { x += p.x; y += p.y; }
+        const n = pointers.size || 1; return { x: x / n, y: y / n };
+      }
+      function toPageXY(cx, cy) {
+        const r = canvas.getBoundingClientRect();
+        return {
+          x: Math.max(0, Math.min(canvas.width, (cx - r.left) / r.width * canvas.width)),
+          y: Math.max(0, Math.min(canvas.height, (cy - r.top) / r.height * canvas.height)),
+        };
+      }
+
       canvas.addEventListener('pointerdown', (e) => {
-        canvas.setPointerCapture(e.pointerId); const p = toPage(e); send({ type: 'mousedown', ...p }); e.preventDefault();
+        canvas.setPointerCapture(e.pointerId);
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pointers.size === 1) { downPos = toPage(e); send({ type: 'mousedown', ...downPos }); }
+        else if (pointers.size === 2) { // a 2nd finger means "scroll", not "click"
+          if (downPos) { send({ type: 'mouseup', ...downPos }); downPos = null; }
+          scrolling = true; scrollAt = centroid();
+        }
+        e.preventDefault();
       });
       canvas.addEventListener('pointermove', (e) => {
-        const now = performance.now(); if (now - lastMove < 25) return; lastMove = now;
-        send({ type: 'mousemove', ...toPage(e) });
+        if (!pointers.has(e.pointerId)) return;
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (scrolling && pointers.size >= 2) {
+          const c = centroid(), r = canvas.getBoundingClientRect();
+          const dx = c.x - scrollAt.x, dy = c.y - scrollAt.y; scrollAt = c;
+          const at = toPageXY(c.x, c.y);
+          // natural: drag down → page content follows down (wheel up)
+          send({ type: 'wheel', x: at.x, y: at.y,
+            deltaX: -dx * (canvas.width / r.width), deltaY: -dy * (canvas.height / r.height) });
+        } else if (pointers.size === 1 && !scrolling) {
+          const now = performance.now(); if (now - lastMove < 25) return; lastMove = now;
+          send({ type: 'mousemove', ...toPage(e) });
+        }
+        e.preventDefault();
       });
-      canvas.addEventListener('pointerup', (e) => { send({ type: 'mouseup', ...toPage(e) }); e.preventDefault(); });
-      canvas.addEventListener('wheel', (e) => {
+      function endPointer(e) {
+        const had = pointers.has(e.pointerId); pointers.delete(e.pointerId);
+        if (scrolling) { if (pointers.size < 2) { scrolling = false; scrollAt = null; } }
+        else if (had && downPos !== null) { send({ type: 'mouseup', ...toPage(e) }); downPos = null; }
+        e.preventDefault();
+      }
+      canvas.addEventListener('pointerup', endPointer);
+      canvas.addEventListener('pointercancel', endPointer);
+      canvas.addEventListener('wheel', (e) => { // desktop trackpad / mouse
         const p = toPage(e); send({ type: 'wheel', ...p, deltaX: e.deltaX, deltaY: e.deltaY }); e.preventDefault();
       }, { passive: false });
 
@@ -101,8 +148,9 @@
         ws.onclose = () => { if (!done) { dot.className = ''; setTimeout(connect, 1000); } };
         ws.onmessage = (ev) => {
           const m = JSON.parse(ev.data);
-          if (m.type === 'hello') { reasonEl.textContent = m.reason || 'Human verification required';
-            if (m.viewport) { vw = m.viewport.width; vh = m.viewport.height; } }
+          if (m.type === 'hello') {
+            const tab = m.page && (m.page.title || m.page.url);
+            reasonEl.textContent = (m.reason || 'Human verification required') + (tab ? ' — ' + tab : ''); }
           else if (m.type === 'frame') onFrame(m.data, m.metadata);
           else if (m.type === 'resumed') { done = true; dot.className = 'done';
             reasonEl.textContent = 'Handed back to the agent. You can close this tab.';

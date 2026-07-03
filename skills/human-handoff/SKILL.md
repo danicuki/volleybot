@@ -43,12 +43,23 @@ bash {baseDir}/scripts/handoff.sh "Cloudflare Turnstile on <site> — need a hum
 ```
 
 Read the output:
+- `ATTACHED_TAB=<url>` — the tab being handed off. volleybot picks the **active
+  (foreground) tab** automatically, so you do NOT need to close other tabs. If
+  this is the wrong tab, bring the right one to the foreground first, or pass its
+  URL as a 2nd arg: `bash {baseDir}/scripts/handoff.sh "<reason>" "<url-substring>"`.
 - `HANDOFF_URL=<link>` — the take-over link is live and has been sent to the
   human. Wait.
 - `HANDOFF_COMPLETE by=human` (or `by=auto`) — **success.** Now **re-snapshot the
   page** and continue your original task on the same session; the wall is gone.
 - `NO_HANDOFF_NEEDED` — there was no wall after all; just continue.
 - non-zero exit / error — report it; don't loop blindly.
+
+**The command exiting IS the "human finished" signal — do not ask the human to
+message you that they're done ("devolvi"/"terminei").** Just run it once, wait for
+it to exit, then continue. It returns on its own when the human taps Resume *or*
+when the page moves forward on its own (e.g. the form submits, `by=auto`). Don't
+spawn a second handoff or regenerate the link while one is running — that orphans
+the link the human already has.
 
 ## Notes
 - This is human-in-the-loop by design: a real person passes the check. It does
