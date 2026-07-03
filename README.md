@@ -213,18 +213,21 @@ cd volleybot && npm link
 # 2. install the skill
 cp -r skills/human-handoff ~/.openclaw/skills/human-handoff
 
-# 3. run your agent against a SHARED browser (so the human drives the same one)
-chromium --headless=new --remote-debugging-port=9222 --user-data-dir=/tmp/agent &
-export VOLLEYBOT_CDP=http://localhost:9222
-export TUNNEL=cloudflared                       # off-LAN link
-export TELEGRAM_BOT_TOKEN=… TELEGRAM_CHAT_ID=…   # push link to your phone
-agent-browser --cdp 9222 open "<url>"           # your agent drives via agent-browser
+# 3. (optional) push the link to your phone / make it reachable off-LAN
+export TUNNEL=cloudflared
+export TELEGRAM_BOT_TOKEN=… TELEGRAM_CHAT_ID=…
 ```
 
-Now when the agent hits a wall, the skill runs
+**No shared-port setup needed with agent-browser.** The skill discovers the live
+browser your agent is driving via `agent-browser get cdp-url` and attaches
+volleybot to that exact session. When the agent hits a wall it runs
 `volleybot handoff` (blocking), you get a phone link, you solve it, and the agent
-resumes on the same session. The skill's `description` makes OpenClaw invoke it
-automatically on a blocker; you can also trigger it with `/skill human-handoff`.
+resumes on the same session. OpenClaw invokes the skill automatically on a
+blocker (from its `description`); you can also trigger it with `/skill human-handoff`.
+
+> agent-browser runs **headless** by default. The handoff works either way, but a
+> stubborn Cloudflare wall passes more reliably if the agent drives a headed
+> browser (`agent-browser --headed …`) — see the headless note above.
 
 ---
 

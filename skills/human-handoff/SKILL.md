@@ -1,6 +1,7 @@
 ---
 name: human-handoff
 description: When a browser task is blocked by a captcha, Cloudflare/Turnstile, hCaptcha/reCAPTCHA, a "verify you are human" wall, 2FA/OTP, or a login you can't complete, hand the LIVE browser to a human who solves it remotely on their phone, then resume the same session. Use this instead of giving up or guessing whenever you hit a manual verification blocker.
+metadata: {"openclaw":{"emoji":"🙋","homepage":"https://github.com/danicuki/volleybot","requires":{"bins":["node"]}}}
 ---
 
 # Human handoff for verification walls (volleybot)
@@ -17,25 +18,21 @@ Trigger this the moment you detect any of:
 - 2FA / OTP / email-code prompts, or a login you don't have credentials for
 - any "manual action required" blocker your browser skill reports
 
-## One-time setup (shared browser)
-The human must drive the **same** browser you're driving, so it has to expose a
-CDP debug port that both your agent tooling and volleybot attach to:
+## Setup
+The human must drive the **same** live browser you're driving. If you use
+**agent-browser**, this is automatic — the wrapper discovers your browser's CDP
+endpoint via `agent-browser get cdp-url`, so there's nothing to configure.
+
+Only if you're NOT on agent-browser, point volleybot at your browser's CDP
+endpoint yourself:
 
 ```bash
-# 1. a shared Chrome with a debug port
-chromium --headless=new --remote-debugging-port=9222 \
-         --user-data-dir=/tmp/agent-profile about:blank &
-
-# 2. point agent-browser at it (instead of letting it launch its own)
-agent-browser --cdp 9222 open "<url>"     # ...drive as usual...
-
-# 3. tell volleybot where that browser is
-export VOLLEYBOT_CDP=http://localhost:9222
+export VOLLEYBOT_CDP=http://localhost:9222   # or a ws://…/devtools/browser/<id> URL
 ```
 
-(Optional but recommended: set `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` so the
-take-over link is pushed to the human's phone, and `TUNNEL=cloudflared` so it's
-reachable off-LAN.)
+Optional but recommended, so the human can solve from their phone:
+- `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` — push the take-over link to the phone
+- `TUNNEL=cloudflared` — make the link reachable off-LAN
 
 ## What to do when blocked
 Run this with the `exec` tool. **It BLOCKS until the human has solved the wall,
