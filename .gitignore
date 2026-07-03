@@ -5,3 +5,5 @@ node_modules/
 .env
 *.log
 .claude/settings.local.json
+SHOW_HN.md
+*.tgz

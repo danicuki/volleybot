@@ -288,15 +288,33 @@ Falls back to `ngrok`, then `localtunnel` (via `npx`), then the LAN address.
 
 ---
 
-## Limitations & honest caveats
+## What it can (and can't) solve
 
-- **It does not defeat anti-bot systems.** It relies on a genuine human.
-- The screencast captures the **visible viewport**; scrolling is relayed, but
-  very tall challenges need a scroll (fine for the in-viewport widgets captchas
-  actually are).
-- Keyboard relay covers text entry and common keys; exotic IME input isn't
-  handled yet.
-- Headless gets challenged more; reach for headful only when a wall hard-loops.
+volleybot relays a real human into the agent's browser, so it only helps with
+checks a human can actually **pass by interacting**:
+
+- ✅ **Solvable challenges** — Cloudflare Turnstile & "just a moment"
+  interstitials, hCaptcha / reCAPTCHA checkbox and image grids, press-and-hold
+  sliders. You see it, you solve it, the agent continues on the same session.
+- ❌ **Invisible scoring** — reCAPTCHA **v3**, DataDome / "silent" bot scores,
+  Turnstile in pure-score mode. There's nothing to click: the site computes a
+  trust *score* from the browser's fingerprint, IP reputation, and account
+  history, then silently allows or blocks (e.g. *"submission flagged as spam"*).
+  A human tapping inside the same automated browser **does not change that
+  score** — so a handoff can't fix it.
+
+For the invisible case the lever is browser **reputation**, not a handoff: run a
+real browser (not Chrome-for-Testing), headed, on a persistent profile signed
+into a real account. That's a property of the browser your agent runs, not
+something volleybot can bolt on.
+
+### Other caveats
+- **It does not defeat anti-bot systems.** If a site would block *you*, it
+  blocks you here too.
+- The screencast is the **visible viewport**; scrolling is relayed (two-finger
+  drag on mobile), but very tall challenges need a scroll.
+- Keyboard relay covers text and common keys; exotic IME input isn't handled yet.
+- Headless gets challenged more; reach for headful when a wall hard-loops.
 
 ---
 
