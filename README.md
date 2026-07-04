@@ -9,6 +9,8 @@ It's the piece that unsticks an autonomous agent **without** physical access to
 its machine, a remote desktop, a VNC client, or a third-party captcha-solving
 farm. Self-hosted, browser-agnostic, ~1k lines, no build step.
 
+![volleybot demo — an agent hits a captcha, you solve it from your phone, the agent resumes](docs/demo.gif)
+
 ```
  ┌──────────┐   1. hits a wall    ┌───────────┐   2. link / QR / Telegram   ┌────────┐
  │  agent   │ ──────────────────► │ volleybot │ ──────────────────────────► │  you   │
