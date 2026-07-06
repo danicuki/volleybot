@@ -1,15 +1,17 @@
 # volleybot
 
-**Human handoff for AI browser agents.** When your agent hits a captcha or
-"prove you're human" wall, volleybot hands its *live* browser to you over a URL.
-You solve it from any device — phone, laptop, anywhere — and the agent resumes on
-the exact same session. Cookies, login, scroll position: all intact.
+**A human-in-the-loop escape hatch for AI browser agents.** Your agent is doing
+your own work — a login, a 2FA code, a "verify you're human" check — and hits a
+step only a person can complete. Instead of the whole run dying, volleybot hands
+the *live* browser to you over a URL. You do that one step from your phone, and
+the agent resumes on the exact same session. Cookies, login, scroll position:
+all intact.
 
-It's the piece that unsticks an autonomous agent **without** physical access to
-its machine, a remote desktop, a VNC client, or a third-party captcha-solving
-farm. Self-hosted, browser-agnostic, ~1k lines, no build step.
+No physical access to the machine, no remote desktop, no VNC — and, importantly,
+**no automated solver and no bypass.** A real person (you) does the interaction,
+relayed into the real browser. Self-hosted, browser-agnostic, ~1k lines, no build step.
 
-![volleybot demo — an agent hits a captcha, you solve it from your phone, the agent resumes](docs/demo.gif)
+![volleybot demo — an agent gets stuck, you take over from your phone, the agent resumes](docs/demo.gif)
 
 ```
  ┌──────────┐   1. hits a wall    ┌───────────┐   2. link / QR / Telegram   ┌────────┐
@@ -18,8 +20,9 @@ farm. Self-hosted, browser-agnostic, ~1k lines, no build step.
  └──────────┘   4. resumes here   └───────────┘   3. you tap / solve it      └────────┘
 ```
 
-> Human-in-the-loop by design: **a real person passes the check.** volleybot is
-> not an automated captcha bypass and ships with no solver. If a site would block
+> Human-in-the-loop by design: **you** complete the step, on sites you're using
+> yourself. It ships no captcha solver and does nothing for invisible bot-scoring
+> (reCAPTCHA v3, DataDome) — there's nothing to click there. If a site would block
 > *you*, it still blocks you here.
 
 ---

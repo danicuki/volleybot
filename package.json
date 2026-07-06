@@ -1,7 +1,7 @@
 {
   "name": "volleybot",
   "version": "0.1.0",
-  "description": "Human handoff for AI browser agents — when an agent hits a captcha / proof-of-humanity wall, it hands its live browser to you over a URL, you solve it from any device, and the agent resumes on the same session.",
+  "description": "A human-in-the-loop escape hatch for AI browser agents: when your agent hits a step only a person can do — a login, a 2FA code, a human-verification check — it hands the live browser to you to complete it, then resumes on the same session. No automated solver.",
   "type": "module",
   "keywords": [
     "captcha",
