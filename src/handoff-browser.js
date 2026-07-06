@@ -172,7 +172,11 @@ export class HandoffBrowser {
     await this.liveView.start();
     if (!this._tunnel) this._tunnel = await openPublicUrl(this.liveView.port);
 
-    const session = await this.liveView.createSession(this.page, { reason });
+    const session = await this.liveView.createSession(this.page, {
+      reason,
+      mobile: opts.mobile,
+      mobileViewport: opts.mobileViewport,
+    });
     const url = `${this._tunnel.baseUrl}${this.liveView.pathFor(session.token)}`;
 
     await notifyHuman({ url, reason });
@@ -274,15 +278,18 @@ async function pickActivePage(context, { pageUrl } = {}) {
     if (match) return match;
   }
 
-  // Background tabs report document.visibilityState === 'hidden'; the foreground
-  // one is 'visible'. This is the tab a human actually wants to see.
+  // The foreground tab reports document.visibilityState === 'visible' and
+  // backgrounded ones 'hidden' — but only reliably in a HEADFUL browser. In
+  // headless, background tabs can also report 'visible', so only trust this
+  // signal when *exactly one* tab is visible; otherwise it's ambiguous.
   const states = await Promise.all(
     pages.map((p) => p.evaluate(() => document.visibilityState).catch(() => 'unknown'))
   );
-  const visible = states.findIndex((s) => s === 'visible');
-  if (visible !== -1) return pages[visible];
+  const visibleIdx = states.flatMap((s, i) => (s === 'visible' ? [i] : []));
+  if (visibleIdx.length === 1) return pages[visibleIdx[0]];
 
-  // Fallback: most recently opened (usually the active one), not the oldest.
+  // Ambiguous (headless reports several visible, or none): the most recently
+  // opened tab is the best guess for "what the agent is on" — never pages()[0].
   return pages[pages.length - 1];
 }
 

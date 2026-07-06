@@ -25,6 +25,8 @@ const { values, positionals } = parseArgs({
     reason: { type: 'string' },
     force: { type: 'boolean', default: false }, // hand off even with no detected wall
     'page-url': { type: 'string' }, // when several tabs are open, pick this one
+    mobile: { type: 'boolean', default: false }, // emulate a portrait phone viewport
+    'mobile-size': { type: 'string' }, // e.g. 390x844
     port: { type: 'string' },
     help: { type: 'boolean', short: 'h', default: false },
   },
@@ -89,6 +91,8 @@ async function main() {
         reason,
         autoResume: true, // auto-resume when the page moves forward (e.g. submit)
         watchClear: !values.force, // also when a detected wall clears
+        mobile: values.mobile || process.env.VOLLEYBOT_MOBILE === '1',
+        mobileViewport: parseSize(values['mobile-size']),
         onUrl: (u) => console.log(`HANDOFF_URL=${u}`),
       });
       console.log(`HANDOFF_COMPLETE by=${by}`);
@@ -106,6 +110,13 @@ async function main() {
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function parseSize(s) {
+  if (!s) return undefined;
+  const m = /^(\d+)x(\d+)(?:@(\d+(?:\.\d+)?))?$/.exec(s.trim());
+  if (!m) return undefined;
+  return { width: +m[1], height: +m[2], dpr: m[3] ? +m[3] : 2 };
 }
 
 function hostOf(u) {
@@ -142,6 +153,10 @@ OPTIONS
   --launch <url>     Standalone: launch volleybot's own browser at <url> instead.
   --reason "..."     Message shown to the human (what wall, which site).
   --force            Hand off even if no wall is auto-detected (2FA, logins…).
+  --mobile           Emulate a portrait phone viewport during the handoff so a
+                     desktop page fits your phone (restored on resume). Or set
+                     VOLLEYBOT_MOBILE=1.
+  --mobile-size WxH  Custom emulated size, e.g. 414x896 or 390x844@3 (default 390x844@2).
   --port <n>         Live-view server port (default 7411 / $PORT).
 
 TUNNEL / NOTIFY env: TUNNEL, NGROK_AUTHTOKEN, PUBLIC_BASE_URL,

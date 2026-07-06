@@ -20,6 +20,10 @@ const PUBLIC_DIR = join(__dirname, '..', 'public');
 // CDP modifier bitmask
 const MOD = { Alt: 1, Ctrl: 2, Meta: 4, Shift: 8 };
 
+// Portrait phone-sized viewport for handoff, so a desktop page reflows to fit a
+// phone screen (elements big enough to actually tap). Restored on resume.
+const MOBILE_VIEWPORT = { width: 390, height: 844 };
+
 export class LiveView {
   /** @param {{port?: number, host?: string}} [opts] */
   constructor({ port = 7411, host = '0.0.0.0' } = {}) {
@@ -95,6 +99,8 @@ class Session {
     this._resumeResolvers = [];
     this._resolved = false;
     this._pressedButtons = 0; // CDP buttons bitmask while dragging
+    this._mobileApplied = false;
+    this._restoreViewport = null;
   }
 
   async init() {
@@ -105,6 +111,35 @@ class Session {
       // Must ack or the stream stalls after a few frames.
       await this.cdp.send('Page.screencastFrameAck', { sessionId: evt.sessionId }).catch(() => {});
     });
+    if (this.meta.mobile) await this._enableMobile();
+  }
+
+  // Resize the page to a portrait phone viewport so it reflows to fit a real
+  // phone. Uses Playwright's setViewportSize (raw CDP Emulation fights the
+  // Playwright-managed connection and produces garbage sizes).
+  async _enableMobile() {
+    const vp = this.meta.mobileViewport || MOBILE_VIEWPORT;
+    try {
+      // Remember what to restore: the known viewport, or the live window size
+      // (connectOverCDP pages report a null viewport).
+      this._restoreViewport =
+        this.page.viewportSize() ||
+        (await this.page
+          .evaluate(() => ({ width: innerWidth, height: innerHeight }))
+          .catch(() => null));
+      await this.page.setViewportSize({ width: vp.width, height: vp.height });
+      this._mobileApplied = true;
+    } catch {
+      // viewport control unsupported on this target; keep the desktop viewport
+    }
+  }
+
+  async _disableMobile() {
+    if (!this._mobileApplied) return;
+    this._mobileApplied = false;
+    if (this._restoreViewport) {
+      await this.page.setViewportSize(this._restoreViewport).catch(() => {});
+    }
   }
 
   async _startScreencast() {
@@ -279,6 +314,7 @@ class Session {
 
   async dispose() {
     await this._stopScreencast();
+    await this._disableMobile(); // restore the agent's desktop viewport before it resumes
     for (const ws of this.sockets) ws.close();
     this.sockets.clear();
     await this.cdp.detach().catch(() => {});

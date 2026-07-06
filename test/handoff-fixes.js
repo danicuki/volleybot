@@ -99,6 +99,19 @@ try {
   await hb.close();
   hb = null;
 
+  // 4. mobile emulation: portrait viewport during handoff, restored after
+  hb = await HandoffBrowser.attachOverCDP({ cdpEndpoint: CDP, port: 7623 });
+  const wBefore = await hb.page.evaluate(() => innerWidth);
+  const sess = await hb.liveView.createSession(hb.page, { reason: 'mobile test', mobile: true });
+  const wDuring = await hb.page.evaluate(() => innerWidth);
+  assert.ok(wDuring >= 380 && wDuring <= 430, `expected ~390 portrait width, got ${wDuring}`);
+  await sess.dispose();
+  const wAfter = await hb.page.evaluate(() => innerWidth);
+  assert.equal(wAfter, wBefore, `viewport should be restored (${wBefore} → ${wAfter})`);
+  console.log(`✓ mobile emulation: ${wBefore}px → ${wDuring}px → ${wAfter}px (restored on resume)`);
+  await hb.close();
+  hb = null;
+
   console.log('\nHANDOFF-FIXES CHECKS PASSED ✅');
 } catch (e) {
   console.error('✗ ' + (e.stack || e.message));

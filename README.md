@@ -266,7 +266,15 @@ All optional — see `.env.example`.
 | `CHROME_PATH` | auto-detected | Browser binary (override the cross-platform search) |
 | `CHROME_ARGS` | — | Extra Chromium flags (e.g. `--ozone-platform=wayland`) |
 | `USER_DATA_DIR` | `./.chrome-profile` | Persistent profile (keeps you "verified") |
+| `VOLLEYBOT_MOBILE` | — | `1` = emulate a portrait phone viewport during handoff (`--mobile`) |
 | `PORT` | `7411` | Live-view server port |
+
+**Solving on a phone?** Pass `--mobile` (or `VOLLEYBOT_MOBILE=1`) and volleybot
+resizes the agent's page to a portrait phone viewport for the duration of the
+handoff — so a desktop layout reflows to fit your screen and the targets are big
+enough to tap — then restores the desktop viewport when the agent resumes. Tune
+it with `--mobile-size 414x896`. (The OpenClaw skill enables this by default;
+disable with `VOLLEYBOT_MOBILE=0`.)
 
 **Public access (NAT traversal):** the take-over link must reach your phone, not
 just the LAN. `TUNNEL=auto` creates one for you, preferring **cloudflared quick
