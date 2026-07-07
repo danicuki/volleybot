@@ -22,7 +22,7 @@ const MOD = { Alt: 1, Ctrl: 2, Meta: 4, Shift: 8 };
 
 // Portrait phone-sized viewport for handoff, so a desktop page reflows to fit a
 // phone screen (elements big enough to actually tap). Restored on resume.
-const MOBILE_VIEWPORT = { width: 390, height: 844 };
+const MOBILE_VIEWPORT = { width: 390, height: 844, dpr: 2 };
 
 export class LiveView {
   /** @param {{port?: number, host?: string}} [opts] */
@@ -100,7 +100,7 @@ class Session {
     this._resolved = false;
     this._pressedButtons = 0; // CDP buttons bitmask while dragging
     this._mobileApplied = false;
-    this._restoreViewport = null;
+    this._navHandler = null;
   }
 
   async init() {
@@ -114,32 +114,51 @@ class Session {
     if (this.meta.mobile) await this._enableMobile();
   }
 
-  // Resize the page to a portrait phone viewport so it reflows to fit a real
-  // phone. Uses Playwright's setViewportSize (raw CDP Emulation fights the
-  // Playwright-managed connection and produces garbage sizes).
+  // Emulate a portrait phone on the SAME CDP session that runs the screencast,
+  // so the captured frames are actually 390-wide — not the full (wide) window
+  // with the page squeezed into a 390px column. Applying it via Playwright's
+  // separate connection only reflows the layout; the screencast, on this session,
+  // wouldn't see the override (that's the "tiny strip + blank" bug on headful).
   async _enableMobile() {
+    await this._applyMobileMetrics();
+    if (this._mobileApplied && !this._navHandler) {
+      // A navigation/reload (e.g. submitting a captcha step) drops the override
+      // and flips the view back to landscape mid-session — re-apply it each time.
+      this._navHandler = (frame) => {
+        if (frame === this.page.mainFrame() && this._mobileApplied) {
+          this._applyMobileMetrics();
+          this.cdp.send('Page.bringToFront').catch(() => {});
+        }
+      };
+      this.page.on('framenavigated', this._navHandler);
+    }
+  }
+
+  async _applyMobileMetrics() {
     const vp = this.meta.mobileViewport || MOBILE_VIEWPORT;
     try {
-      // Remember what to restore: the known viewport, or the live window size
-      // (connectOverCDP pages report a null viewport).
-      this._restoreViewport =
-        this.page.viewportSize() ||
-        (await this.page
-          .evaluate(() => ({ width: innerWidth, height: innerHeight }))
-          .catch(() => null));
-      await this.page.setViewportSize({ width: vp.width, height: vp.height });
+      await this.cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: vp.width,
+        height: vp.height,
+        deviceScaleFactor: vp.dpr || 2,
+        mobile: true,
+        screenWidth: vp.width,
+        screenHeight: vp.height,
+      });
       this._mobileApplied = true;
     } catch {
-      // viewport control unsupported on this target; keep the desktop viewport
+      // emulation unsupported on this target; keep the desktop viewport
     }
   }
 
   async _disableMobile() {
+    if (this._navHandler) {
+      this.page.off('framenavigated', this._navHandler);
+      this._navHandler = null;
+    }
     if (!this._mobileApplied) return;
     this._mobileApplied = false;
-    if (this._restoreViewport) {
-      await this.page.setViewportSize(this._restoreViewport).catch(() => {});
-    }
+    await this.cdp.send('Emulation.clearDeviceMetricsOverride').catch(() => {});
   }
 
   async _startScreencast() {

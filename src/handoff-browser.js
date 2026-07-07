@@ -278,18 +278,12 @@ async function pickActivePage(context, { pageUrl } = {}) {
     if (match) return match;
   }
 
-  // The foreground tab reports document.visibilityState === 'visible' and
-  // backgrounded ones 'hidden' — but only reliably in a HEADFUL browser. In
-  // headless, background tabs can also report 'visible', so only trust this
-  // signal when *exactly one* tab is visible; otherwise it's ambiguous.
-  const states = await Promise.all(
-    pages.map((p) => p.evaluate(() => document.visibilityState).catch(() => 'unknown'))
-  );
-  const visibleIdx = states.flatMap((s, i) => (s === 'visible' ? [i] : []));
-  if (visibleIdx.length === 1) return pages[visibleIdx[0]];
-
-  // Ambiguous (headless reports several visible, or none): the most recently
-  // opened tab is the best guess for "what the agent is on" — never pages()[0].
+  // No URL hint: use the most recently opened tab. It's the best guess for
+  // "what the agent is on" and, crucially, deterministic — never pages()[0]
+  // (the oldest), which caused the wrong-tab handoffs. document.visibilityState
+  // looks tempting but is unreliable in headless (background tabs report
+  // 'visible' too), so we don't depend on it; use --page-url to target a
+  // specific tab when the newest isn't the right one.
   return pages[pages.length - 1];
 }
 
