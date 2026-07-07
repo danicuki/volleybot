@@ -34,9 +34,10 @@ Optional but recommended, so the human can solve from their phone:
 - `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` — push the take-over link to the phone
 - `TUNNEL=cloudflared` — make the link reachable off-LAN
 
-The page is resized to a **portrait phone viewport** during the handoff by
-default (so a desktop layout fits the human's phone), then restored when you
-resume. Set `VOLLEYBOT_MOBILE=0` to keep the desktop viewport.
+Optional phone view: `VOLLEYBOT_MOBILE=1` resizes the page to a portrait phone
+viewport during the handoff. It's **off by default** because it changes the
+browser's device fingerprint, which fingerprint-sensitive captchas (e.g. Arkose
+"drag the character") detect and reject — only enable it on sites without those.
 
 ## What to do when blocked
 Run this with the `exec` tool. **It BLOCKS until the human has solved the wall,

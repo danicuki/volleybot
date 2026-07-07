@@ -37,9 +37,11 @@ fi
 
 ARGS=(handoff --cdp "$CDP" --reason "$REASON")
 [ -n "$PAGE_URL" ] && ARGS+=(--page-url "$PAGE_URL")
-# The human solves on a phone, so emulate a portrait viewport by default.
-# Disable with VOLLEYBOT_MOBILE=0; restored to desktop when the agent resumes.
-[ "${VOLLEYBOT_MOBILE:-1}" != "0" ] && ARGS+=(--mobile)
+# Phone-portrait emulation is OFF by default: it changes the browser's device
+# fingerprint, and fingerprint-sensitive captchas (e.g. Arkose "drag the
+# character") detect device emulation and reject the solve. Enable only for
+# sites without those, with VOLLEYBOT_MOBILE=1.
+[ "${VOLLEYBOT_MOBILE:-0}" = "1" ] && ARGS+=(--mobile)
 
 echo "volleybot: handing off (cdp=$CDP${PAGE_URL:+, tab~=$PAGE_URL})" >&2
 exec "${VB[@]}" "${ARGS[@]}"

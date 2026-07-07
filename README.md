@@ -272,12 +272,14 @@ All optional — see `.env.example`.
 | `VOLLEYBOT_MOBILE` | — | `1` = emulate a portrait phone viewport during handoff (`--mobile`) |
 | `PORT` | `7411` | Live-view server port |
 
-**Solving on a phone?** Pass `--mobile` (or `VOLLEYBOT_MOBILE=1`) and volleybot
-resizes the agent's page to a portrait phone viewport for the duration of the
-handoff — so a desktop layout reflows to fit your screen and the targets are big
-enough to tap — then restores the desktop viewport when the agent resumes. Tune
-it with `--mobile-size 414x896`. (The OpenClaw skill enables this by default;
-disable with `VOLLEYBOT_MOBILE=0`.)
+**Solving on a phone?** `--mobile` (or `VOLLEYBOT_MOBILE=1`) resizes the agent's
+page to a portrait phone viewport for the handoff — a desktop layout reflows to
+fit your screen — then restores it on resume (`--mobile-size 414x896` to tune).
+It's **off by default**: emulating a device changes the browser's fingerprint,
+and **fingerprint-sensitive captchas (e.g. Arkose FunCaptcha, the "drag the
+character" one) detect device emulation and reject the solve**. Turn it on only
+for sites without those. For a fingerprint-safe zoom, pinch-to-zoom in the viewer
+instead (planned).
 
 **Public access (NAT traversal):** the take-over link must reach your phone, not
 just the LAN. `TUNNEL=auto` creates one for you, preferring **cloudflared quick
